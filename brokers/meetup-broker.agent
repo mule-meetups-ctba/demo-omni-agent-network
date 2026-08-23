@@ -1,0 +1,101 @@
+# @dialect: AGENTFABRIC=1.0
+
+system:
+  instructions: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
+
+config:
+  agent_name: "meetup-broker"
+  label: "Meetup Omni Broker"
+  description: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
+  default_llm: @llm.azure_gpt
+
+
+# -- LLM ----------------------------------------------------------------------
+# Azure OpenAI usa kind "OpenAI" (só o Bedrock OpenAI difere, com prefixo
+# "openai." no nome do modelo). O endpoint exigido pelo broker é /responses.
+
+llm:
+  azure_gpt:
+    target: "llm://azureOpenAiConnection"
+    kind: "OpenAI"
+    model: "gpt-5.4-mini"
+
+
+# -- ACTION DEFINITIONS -------------------------------------------------------
+
+actions:
+  meetup_agent:
+    target: "a2a://meetupAgentConnection"
+    kind: "a2a:send_message"
+
+  # NOTE: no schema 2.0, cada tool MCP precisa ser declarada explicitamente
+  # (o v1 referenciava o mcpServer inteiro). Nomes reais expostos pelo
+  # demo-support-mcp-server (support-tools.xml):
+  get_order_status:
+    target: "mcp://mcpServerConnection"
+    kind: "mcp:tool"
+    tool_name: "get-order-status"
+
+  create_support_case:
+    target: "mcp://mcpServerConnection"
+    kind: "mcp:tool"
+    tool_name: "create-support-case"
+
+  refund_payment:
+    target: "mcp://mcpServerConnection"
+    kind: "mcp:tool"
+    tool_name: "refund-payment"
+
+  notify_team:
+    target: "mcp://mcpServerConnection"
+    kind: "mcp:tool"
+    tool_name: "notify-team"
+
+
+# -- TRIGGER ------------------------------------------------------------------
+
+trigger meetupBrokerTrigger:
+  kind: "a2a"
+  target: "brokers://meetup-broker/a2a"
+  on_message: ->
+    transition to @orchestrator.meetupOmniAssistant
+
+
+# -- MEETUP OMNI ORCHESTRATION ------------------------------------------------
+
+orchestrator meetupOmniAssistant:
+  description: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
+  label: "Meetup Omni Assistant"
+  system:
+    instructions: |
+      You are a Meetup Omni project assistant. Use available agent and MCP tools to support integration tasks, answer project questions, and maintain contextual accuracy.
+      For simple read-only questions, such as checking the status of a single order, call the MCP tools directly instead of delegating. Delegate to the agent only when the task requires multi-step actions such as refunds, support cases, or team notifications.
+  reasoning:
+    instructions: -> @request.payload.message.parts[0].text
+    actions:
+      meetup_agent: @actions.meetup_agent
+      get_order_status: @actions.get_order_status
+      create_support_case: @actions.create_support_case
+      refund_payment: @actions.refund_payment
+      notify_team: @actions.notify_team
+    outputs:
+      properties:
+        summary:
+          type: "string"
+          description: "Plain-text summary of all actions taken."
+    max_number_of_loops: 25
+  on_exit: ->
+    transition to @echo.meetupOmniResponse
+
+
+# -- RESPONSE -----------------------------------------------------------------
+
+echo meetupOmniResponse:
+  kind: "a2a:status_update_event"
+  state: "TASK_STATE_COMPLETED"
+  message: a2a.message({
+    messageId: uuid(),
+    parts: [
+      a2a.textPart(@orchestrator.meetupOmniAssistant.output.summary)
+    ]
+  })

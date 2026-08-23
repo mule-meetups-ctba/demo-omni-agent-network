@@ -1,0 +1,10 @@
+target/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# SEGREDOS — os valores das variáveis declaradas em exchange.json
+# (azureOpenAi.apiKey, *.clientSecret) são preenchidos no deploy da instância,
+# nunca no repositório. Ver SECRETS.md.
+*.key
+.env

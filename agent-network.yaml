@@ -1,0 +1,167 @@
+agentNetwork: 2.0.0
+info:
+  label: "Meetup Omni Agent Network"
+  version: 1.0.0
+  description: |
+    Meetup Omni Agent Network (2.0). Coordinates agent, tool, and LLM interactions
+    for the Meetup Omni integration project.
+  tags:
+    - meetup
+    - omni
+    - agent-network
+
+registry:
+  agents:
+    meetupAgent:
+      info:
+        label: Meetup Omni Agent
+        description: Assists with Meetup Omni integration tasks using the A2A protocol.
+      metadata:
+        platform: OpenAI
+        # Chave "a2a" = A2A protocol 1.x (A2A Connector 2.0). Para um agente ainda
+        # em protocol 0.3.0 use a chave "a2a_v03" em vez de "a2a" (ver
+        # https://docs.mulesoft.com/agent-network/latest/af-agent-network-yaml-reference).
+        interfaces:
+          a2a:
+            card:
+              name: Meetup Omni Agent
+              description: Assists with Meetup Omni integration tasks using the A2A protocol.
+              version: 1.0.0
+              capabilities:
+                streaming: false
+                pushNotifications: false
+                extendedAgentCard: false
+              defaultInputModes:
+                - application/json
+                - text/plain
+              defaultOutputModes:
+                - application/json
+                - text/plain
+              # supportedInterfaces substitui os antigos campos "url"/"protocolVersion"
+              # de nível raiz do agent card (A2A protocol 1.0). Deve bater exatamente
+              # com o <a2a:interface protocol="JSONRPC" path="/rpc"/> configurado no
+              # demo-support-agent (global-config.xml) — daí o sufixo /rpc na URL.
+              supportedInterfaces:
+                - url: ${meetupAgent.url}/rpc
+                  protocolBinding: JSONRPC
+                  protocolVersion: "1.0"
+                  tenant: ""
+              skills:
+                - id: meetup-agent-assist
+                  name: Meetup Omni Agent Assist
+                  description: Assists with Meetup Omni integration tasks using the A2A protocol.
+                  tags:
+                    - meetup
+                    - omni
+                  inputModes:
+                    - application/json
+                    - text/plain
+                  outputModes:
+                    - application/json
+                    - text/plain
+
+  mcps:
+    mcpServer:
+      info:
+        label: Meetup Omni MCP Server
+        description: MCP server providing tools for Meetup Omni integration tasks.
+      metadata:
+        transport:
+          kind: streamableHttp
+          path: /mcp
+
+  llms:
+    azureOpenAi:
+      info:
+        label: Azure OpenAI LLM Provider
+        description: Azure OpenAI provider for the broker's orchestration nodes.
+      metadata:
+        # Valores válidos de platform: Gemini | OpenAI | AzureOpenai
+        platform: AzureOpenai
+        models:
+          # Mesmo deployment usado pelo demo-support-agent (endpoint /responses).
+          - gpt-5.4-mini
+
+context:
+  connections:
+    meetupAgentConnection:
+      kind: a2a
+      ref:
+        name: meetupAgent
+      url: ${meetupAgent.url}
+      # Contrato "broker-to-agent": techwave-order-support-agent tem Client ID
+      # Enforcement (ver SECURITY-POLICIES.md). Headers default client_id/client_secret.
+      # NOTA (Agent Network 2.0): "url" fica direto na connection, sem aninhar em "spec".
+      authentication:
+        kind: apikey-client-credentials
+        clientId: ${meetupAgent.clientId}
+        clientSecret: ${meetupAgent.clientSecret}
+    mcpServerConnection:
+      kind: mcp
+      ref:
+        name: mcpServer
+      url: ${mcpServer.url}
+      # Contrato "broker-to-mcp-server": techwave-support-mcp-server tem Client ID
+      # Enforcement + MCP Global Access (ver SECURITY-POLICIES.md).
+      authentication:
+        kind: apikey-client-credentials
+        clientId: ${mcpServer.clientId}
+        clientSecret: ${mcpServer.clientSecret}
+    azureOpenAiConnection:
+      kind: llm
+      ref:
+        name: azureOpenAi
+      # Base URL do recurso Azure OpenAI, terminando em /openai/v1 — o broker monta
+      # o path /responses sozinho. Forma documentada:
+      #   https://<RESOURCE>.openai.azure.com/openai/v1
+      # Recursos criados via AI Foundry usam o host <RESOURCE>.services.ai.azure.com
+      # (é o mesmo endpoint que o demo-support-agent já usa e valida).
+      url: ${azureOpenAi.url}
+      authentication:
+        kind: apiKey
+        apiKey: ${azureOpenAi.apiKey}
+
+brokers:
+  meetup-broker:
+    kind: AgentScript
+    implementation: ./brokers/meetup-broker.agent
+    interfaces:
+      a2a:
+        card:
+          name: Meetup Omni Broker
+          description: Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project.
+          version: 1.0.0
+          capabilities:
+            streaming: false
+            pushNotifications: true
+            extendedAgentCard: false
+          # URL pública do broker via ingress Omni Gateway, declarada como
+          # supportedInterfaces (A2A protocol 1.0). Variável definida em exchange.json.
+          supportedInterfaces:
+            - url: ${meetupBroker.url}
+              protocolBinding: JSONRPC
+              protocolVersion: "1.0"
+              tenant: ""
+          defaultInputModes:
+            - application/json
+            - text/plain
+          defaultOutputModes:
+            - application/json
+            - text/plain
+          skills:
+            - id: meetup-omni-assistant
+              name: Meetup Omni Assistant
+              description: Assist with Meetup Omni integration tasks, event processing, user queries, and orchestration logic.
+              tags:
+                - meetup
+                - omni
+                - assistant
+              examples:
+                - Help me understand the event flow for the Meetup Omni project.
+                - Create a plan to connect meetup event data with the Omni backend.
+              inputModes:
+                - application/json
+                - text/plain
+              outputModes:
+                - application/json
+                - text/plain

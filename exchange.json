@@ -1,0 +1,74 @@
+{
+  "main": "agent-network.yaml",
+  "name": "meetup-omni-agent-network-v2",
+  "classifier": "agentic-network",
+  "organizationId": "9db424b9-11da-4408-b49e-8e944a38666a",
+  "descriptorVersion": "1.0.0",
+  "description": "Meetup Omni Agent Network (2.0). Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project.",
+  "tags": [
+    "meetup",
+    "omni",
+    "agent-network"
+  ],
+  "groupId": "9db424b9-11da-4408-b49e-8e944a38666a",
+  "assetId": "meetup-omni-agent-network-v2",
+  "version": "1.0.0",
+  "dependencies": [],
+  "metadata": {
+    "variables": {
+      "meetupAgent": {
+        "url": {
+          "description": "Meetup Omni Agent URL",
+          "default": "",
+          "secret": false
+        },
+        "clientId": {
+          "description": "client_id do contrato broker-to-agent (techwave-order-support-agent, Client ID Enforcement)",
+          "default": "",
+          "secret": false
+        },
+        "clientSecret": {
+          "description": "client_secret do contrato broker-to-agent",
+          "default": "",
+          "secret": true
+        }
+      },
+      "mcpServer": {
+        "url": {
+          "description": "MCP Server URL",
+          "default": "",
+          "secret": false
+        },
+        "clientId": {
+          "description": "client_id do contrato broker-to-mcp-server (techwave-support-mcp-server, Client ID Enforcement)",
+          "default": "",
+          "secret": false
+        },
+        "clientSecret": {
+          "description": "client_secret do contrato broker-to-mcp-server",
+          "default": "",
+          "secret": true
+        }
+      },
+      "azureOpenAi": {
+        "url": {
+          "description": "Base URL do recurso Azure OpenAI usado pelo broker, terminando em /openai/v1 (ex.: https://<RESOURCE>.openai.azure.com/openai/v1)",
+          "default": "",
+          "secret": false
+        },
+        "apiKey": {
+          "description": "API key do recurso Azure OpenAI usado pelo broker da Agent Network",
+          "default": "",
+          "secret": true
+        }
+      },
+      "meetupBroker": {
+        "url": {
+          "description": "Public URL of the meetup-broker A2A endpoint via the ingress Omni Gateway (e.g. https://<ingress-gw>/meetup-broker), used in the broker's own agent card supportedInterfaces",
+          "default": "",
+          "secret": false
+        }
+      }
+    }
+  }
+}
