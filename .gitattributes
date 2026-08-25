@@ -1,0 +1,25 @@
+# Normaliza fim de linha: LF no repositório, nativo no working tree.
+# Sem isto, um checkout no Windows (CRLF) faz o repo inteiro aparecer como
+# modificado depois de qualquer ferramenta que escreva em LF.
+* text=auto
+
+# Texto explícito (evita heurística errada)
+*.xml    text
+*.yaml   text
+*.yml    text
+*.json   text
+*.md     text
+*.agent  text
+*.dwl    text
+
+# Scripts precisam de LF mesmo no Windows
+*.sh     text eol=lf
+
+# Scripts PowerShell funcionam melhor com CRLF
+*.ps1    text eol=crlf
+
+# Binários — nunca converter
+*.jar    binary
+*.png    binary
+*.jpg    binary
+*.pptx   binary

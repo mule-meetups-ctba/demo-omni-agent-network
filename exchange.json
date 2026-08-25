@@ -1,6 +1,6 @@
 {
   "main": "agent-network.yaml",
-  "name": "meetup-omni-agent-network-v2",
+  "name": "demo-omni-agent-network",
   "classifier": "agentic-network",
   "organizationId": "9db424b9-11da-4408-b49e-8e944a38666a",
   "descriptorVersion": "1.0.0",
@@ -11,7 +11,7 @@
     "agent-network"
   ],
   "groupId": "9db424b9-11da-4408-b49e-8e944a38666a",
-  "assetId": "meetup-omni-agent-network-v2",
+  "assetId": "demo-omni-agent-network",
   "version": "1.0.0",
   "dependencies": [],
   "metadata": {
