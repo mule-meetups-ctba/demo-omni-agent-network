@@ -4,9 +4,9 @@
   "classifier": "agentic-network",
   "organizationId": "9db424b9-11da-4408-b49e-8e944a38666a",
   "descriptorVersion": "1.0.0",
-  "description": "Meetup Omni Agent Network (2.0). Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project.",
+  "description": "Demo Omni Agent Network (2.0). Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo.",
   "tags": [
-    "meetup",
+    "demo",
     "omni",
     "agent-network"
   ],
@@ -16,9 +16,9 @@
   "dependencies": [],
   "metadata": {
     "variables": {
-      "meetupAgent": {
+      "demoSupportAgent": {
         "url": {
-          "description": "Meetup Omni Agent URL",
+          "description": "URL pública do Order Support Agent (demo-support-agent) via ingress Omni Gateway",
           "default": "",
           "secret": false
         },
@@ -62,9 +62,9 @@
           "secret": true
         }
       },
-      "meetupBroker": {
+      "demoOmniBroker": {
         "url": {
-          "description": "Public URL of the meetup-broker A2A endpoint via the ingress Omni Gateway (e.g. https://<ingress-gw>/meetup-broker), used in the broker's own agent card supportedInterfaces",
+          "description": "Public URL of the demo-omni-broker A2A endpoint via the ingress Omni Gateway (e.g. https://<ingress-gw>/demo-omni-broker), used in the broker's own agent card supportedInterfaces",
           "default": "",
           "secret": false
         }

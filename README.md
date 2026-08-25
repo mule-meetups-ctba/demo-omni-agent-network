@@ -1,11 +1,11 @@
-# meetup-omni-agent-network
+# demo-omni-agent-network
 
 Projeto **Agent Network 2.0** (MuleSoft Agent Fabric) da demo do MuleSoft Meetup. Define a rede
 que coordena o agente A2A, as tools MCP e o LLM — e o **broker** que decide quando resolver algo
 sozinho e quando delegar.
 
 - **Schema:** `agentNetwork: 2.0.0` (YAML `registry` + `context` + `brokers`)
-- **Broker:** AgentScript (`brokers/meetup-broker.agent`), dialeto `AGENTFABRIC=1.0`
+- **Broker:** AgentScript (`brokers/demo-omni-broker.agent`), dialeto `AGENTFABRIC=1.0`
 - **LLM:** Azure OpenAI `gpt-5.4-mini` (endpoint `/responses`)
 - **Protocolo entre agentes:** A2A 1.0
 
@@ -19,7 +19,7 @@ sozinho e quando delegar.
 ├── agent-network.yaml     # registry (assets) + context (conexões) + brokers
 ├── exchange.json          # metadados Exchange + variáveis (com flag secret)
 └── brokers/
-    └── meetup-broker.agent  # o broker, em AgentScript
+    └── demo-omni-broker.agent  # o broker, em AgentScript
 ```
 
 **`registry`** descreve *o que existe* (agentes, MCP servers, LLMs — que viram assets no
@@ -65,7 +65,7 @@ Ver [SECRETS.md](SECRETS.md) para a lista completa e o checklist de rotação.
    pelo template Agent Network).
 2. Preencha as variáveis de `exchange.json` com os valores reais pós-deploy dos apps (URLs via
    ingress GW + credenciais dos contratos).
-3. Confira que `supportedInterfaces[0].url` do agente bate com `${meetupAgent.url}/rpc` — o path
+3. Confira que `supportedInterfaces[0].url` do agente bate com `${demoSupportAgent.url}/rpc` — o path
    `/rpc` do binding JSON-RPC do `demo-support-agent`.
 4. Publique os assets no **Exchange** e deploye a instância da rede.
 5. Registre o broker como Agent Instance no ingress gateway e aplique as políticas

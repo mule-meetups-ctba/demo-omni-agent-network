@@ -1,12 +1,12 @@
 # @dialect: AGENTFABRIC=1.0
 
 system:
-  instructions: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
+  instructions: "Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo."
 
 config:
-  agent_name: "meetup-broker"
-  label: "Meetup Omni Broker"
-  description: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
+  agent_name: "demo-omni-broker"
+  label: "Demo Omni Broker"
+  description: "Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo."
   default_llm: @llm.azure_gpt
 
 
@@ -24,8 +24,8 @@ llm:
 # -- ACTION DEFINITIONS -------------------------------------------------------
 
 actions:
-  meetup_agent:
-    target: "a2a://meetupAgentConnection"
+  order_support_agent:
+    target: "a2a://demoSupportAgentConnection"
     kind: "a2a:send_message"
 
   # NOTE: no schema 2.0, cada tool MCP precisa ser declarada explicitamente
@@ -54,26 +54,26 @@ actions:
 
 # -- TRIGGER ------------------------------------------------------------------
 
-trigger meetupBrokerTrigger:
+trigger demoOmniBrokerTrigger:
   kind: "a2a"
-  target: "brokers://meetup-broker/a2a"
+  target: "brokers://demo-omni-broker/a2a"
   on_message: ->
-    transition to @orchestrator.meetupOmniAssistant
+    transition to @orchestrator.demoOmniAssistant
 
 
-# -- MEETUP OMNI ORCHESTRATION ------------------------------------------------
+# -- ORCHESTRATION ------------------------------------------------------------
 
-orchestrator meetupOmniAssistant:
-  description: "Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project."
-  label: "Meetup Omni Assistant"
+orchestrator demoOmniAssistant:
+  description: "Decides whether to answer with the MCP tools directly or delegate to the order support agent."
+  label: "Demo Omni Assistant"
   system:
     instructions: |
-      You are a Meetup Omni project assistant. Use available agent and MCP tools to support integration tasks, answer project questions, and maintain contextual accuracy.
+      You are the TechWave Electronics customer support assistant. Use the available agent and MCP tools to answer questions about orders and to resolve support requests.
       For simple read-only questions, such as checking the status of a single order, call the MCP tools directly instead of delegating. Delegate to the agent only when the task requires multi-step actions such as refunds, support cases, or team notifications.
   reasoning:
     instructions: -> @request.payload.message.parts[0].text
     actions:
-      meetup_agent: @actions.meetup_agent
+      order_support_agent: @actions.order_support_agent
       get_order_status: @actions.get_order_status
       create_support_case: @actions.create_support_case
       refund_payment: @actions.refund_payment
@@ -85,17 +85,17 @@ orchestrator meetupOmniAssistant:
           description: "Plain-text summary of all actions taken."
     max_number_of_loops: 25
   on_exit: ->
-    transition to @echo.meetupOmniResponse
+    transition to @echo.demoOmniResponse
 
 
 # -- RESPONSE -----------------------------------------------------------------
 
-echo meetupOmniResponse:
+echo demoOmniResponse:
   kind: "a2a:status_update_event"
   state: "TASK_STATE_COMPLETED"
   message: a2a.message({
     messageId: uuid(),
     parts: [
-      a2a.textPart(@orchestrator.meetupOmniAssistant.output.summary)
+      a2a.textPart(@orchestrator.demoOmniAssistant.output.summary)
     ]
   })

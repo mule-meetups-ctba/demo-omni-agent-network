@@ -23,15 +23,15 @@ dos logs. O `agent-network.yaml` referencia as variáveis por `${...}`, nunca o 
 
 | Variável | `secret` | O que é |
 |---|---|---|
-| `meetupAgent.url` | não | URL pública do agente A2A via ingress Omni Gateway |
-| `meetupAgent.clientId` | não | `client_id` do contrato `broker-to-agent` |
-| `meetupAgent.clientSecret` | **sim** | `client_secret` do mesmo contrato |
+| `demoSupportAgent.url` | não | URL pública do agente A2A via ingress Omni Gateway |
+| `demoSupportAgent.clientId` | não | `client_id` do contrato `broker-to-agent` |
+| `demoSupportAgent.clientSecret` | **sim** | `client_secret` do mesmo contrato |
 | `mcpServer.url` | não | URL do MCP server via gateway |
 | `mcpServer.clientId` | não | `client_id` do contrato `broker-to-mcp-server` |
 | `mcpServer.clientSecret` | **sim** | `client_secret` do mesmo contrato |
 | `azureOpenAi.url` | não | base URL do recurso Azure OpenAI, terminando em `/openai/v1` |
 | `azureOpenAi.apiKey` | **sim** | API key do Azure OpenAI |
-| `meetupBroker.url` | não | URL pública do broker via ingress, anunciada no agent card |
+| `demoOmniBroker.url` | não | URL pública do broker via ingress, anunciada no agent card |
 
 Se você clonar este repositório, os `default` vazios são o comportamento correto — preencha no
 deploy, não no arquivo.

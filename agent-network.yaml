@@ -1,21 +1,21 @@
 agentNetwork: 2.0.0
 info:
-  label: "Meetup Omni Agent Network"
+  label: "Demo Omni Agent Network"
   version: 1.0.0
   description: |
-    Meetup Omni Agent Network (2.0). Coordinates agent, tool, and LLM interactions
-    for the Meetup Omni integration project.
+    Demo Omni Agent Network (2.0). Coordinates the order support agent, the MCP
+    tools and the LLM for the TechWave Electronics support demo.
   tags:
-    - meetup
+    - demo
     - omni
     - agent-network
 
 registry:
   agents:
-    meetupAgent:
+    demoSupportAgent:
       info:
-        label: Meetup Omni Agent
-        description: Assists with Meetup Omni integration tasks using the A2A protocol.
+        label: Order Support Agent
+        description: Agente A2A de suporte de pedidos da TechWave Electronics (demo-support-agent).
       metadata:
         platform: OpenAI
         # Chave "a2a" = A2A protocol 1.x (A2A Connector 2.0). Para um agente ainda
@@ -24,8 +24,8 @@ registry:
         interfaces:
           a2a:
             card:
-              name: Meetup Omni Agent
-              description: Assists with Meetup Omni integration tasks using the A2A protocol.
+              name: Order Support Agent
+              description: Consulta status de pedidos e pagamentos, abre cases, processa reembolsos e notifica o time.
               version: 1.0.0
               capabilities:
                 streaming: false
@@ -42,17 +42,18 @@ registry:
               # com o <a2a:interface protocol="JSONRPC" path="/rpc"/> configurado no
               # demo-support-agent (global-config.xml) — daí o sufixo /rpc na URL.
               supportedInterfaces:
-                - url: ${meetupAgent.url}/rpc
+                - url: ${demoSupportAgent.url}/rpc
                   protocolBinding: JSONRPC
                   protocolVersion: "1.0"
                   tenant: ""
               skills:
-                - id: meetup-agent-assist
-                  name: Meetup Omni Agent Assist
-                  description: Assists with Meetup Omni integration tasks using the A2A protocol.
+                - id: order-support
+                  name: Order Support
+                  description: Responde perguntas sobre pedidos, abre cases de suporte e processa reembolsos.
                   tags:
-                    - meetup
-                    - omni
+                    - orders
+                    - support
+                    - refund
                   inputModes:
                     - application/json
                     - text/plain
@@ -63,8 +64,8 @@ registry:
   mcps:
     mcpServer:
       info:
-        label: Meetup Omni MCP Server
-        description: MCP server providing tools for Meetup Omni integration tasks.
+        label: TechWave Support MCP Server
+        description: MCP server com as tools de suporte (pedido, case, reembolso, notificação).
       metadata:
         transport:
           kind: streamableHttp
@@ -84,18 +85,18 @@ registry:
 
 context:
   connections:
-    meetupAgentConnection:
+    demoSupportAgentConnection:
       kind: a2a
       ref:
-        name: meetupAgent
-      url: ${meetupAgent.url}
+        name: demoSupportAgent
+      url: ${demoSupportAgent.url}
       # Contrato "broker-to-agent": techwave-order-support-agent tem Client ID
       # Enforcement (ver SECURITY-POLICIES.md). Headers default client_id/client_secret.
       # NOTA (Agent Network 2.0): "url" fica direto na connection, sem aninhar em "spec".
       authentication:
         kind: apikey-client-credentials
-        clientId: ${meetupAgent.clientId}
-        clientSecret: ${meetupAgent.clientSecret}
+        clientId: ${demoSupportAgent.clientId}
+        clientSecret: ${demoSupportAgent.clientSecret}
     mcpServerConnection:
       kind: mcp
       ref:
@@ -122,14 +123,14 @@ context:
         apiKey: ${azureOpenAi.apiKey}
 
 brokers:
-  meetup-broker:
+  demo-omni-broker:
     kind: AgentScript
-    implementation: ./brokers/meetup-broker.agent
+    implementation: ./brokers/demo-omni-broker.agent
     interfaces:
       a2a:
         card:
-          name: Meetup Omni Broker
-          description: Coordinates agent, tool, and LLM interactions for the Meetup Omni integration project.
+          name: Demo Omni Broker
+          description: Coordena o agente de suporte, as tools MCP e o LLM da demo TechWave Electronics.
           version: 1.0.0
           capabilities:
             streaming: false
@@ -138,7 +139,7 @@ brokers:
           # URL pública do broker via ingress Omni Gateway, declarada como
           # supportedInterfaces (A2A protocol 1.0). Variável definida em exchange.json.
           supportedInterfaces:
-            - url: ${meetupBroker.url}
+            - url: ${demoOmniBroker.url}
               protocolBinding: JSONRPC
               protocolVersion: "1.0"
               tenant: ""
@@ -149,16 +150,16 @@ brokers:
             - application/json
             - text/plain
           skills:
-            - id: meetup-omni-assistant
-              name: Meetup Omni Assistant
-              description: Assist with Meetup Omni integration tasks, event processing, user queries, and orchestration logic.
+            - id: demo-omni-assistant
+              name: Demo Omni Assistant
+              description: Responde perguntas sobre pedidos e resolve solicitações de suporte, delegando ao agente quando a tarefa exige múltiplos passos.
               tags:
-                - meetup
+                - demo
                 - omni
                 - assistant
               examples:
-                - Help me understand the event flow for the Meetup Omni project.
-                - Create a plan to connect meetup event data with the Omni backend.
+                - Qual o status do pedido TW-1001?
+                - O monitor do pedido TW-1002 chegou com defeito. Quero reembolso. Abra um chamado por favor.
               inputModes:
                 - application/json
                 - text/plain
