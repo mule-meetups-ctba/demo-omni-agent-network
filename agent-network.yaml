@@ -1,7 +1,7 @@
 agentNetwork: 2.0.0
 info:
   label: "Demo Omni Agent Network"
-  version: 1.0.0
+  version: 2.0.1
   description: |
     Demo Omni Agent Network (2.0). Coordinates the order support agent, the MCP
     tools and the LLM for the TechWave Electronics support demo.
@@ -17,10 +17,13 @@ registry:
         label: Order Support Agent
         description: Agente A2A de suporte de pedidos da TechWave Electronics (demo-support-agent).
       metadata:
-        platform: OpenAI
+        # `Other` e o valor para agente A2A. Gemini/OpenAI/AzureOpenai sao valores
+        # de plataforma de LLM (registry.llms) e nao descrevem um agente — este
+        # aqui e uma app Mule com A2A Connector.
+        platform: Other
         # Chave "a2a" = A2A protocol 1.x (A2A Connector 2.0). Para um agente ainda
         # em protocol 0.3.0 use a chave "a2a_v03" em vez de "a2a" (ver
-        # https://docs.mulesoft.com/agent-network/latest/af-agent-network-yaml-reference).
+        # https://docs.MuleSoft.com/agent-network/latest/af-agent-network-yaml-reference).
         interfaces:
           a2a:
             card:
@@ -77,7 +80,7 @@ registry:
         label: Azure OpenAI LLM Provider
         description: Azure OpenAI provider for the broker's orchestration nodes.
       metadata:
-        # Valores válidos de platform: Gemini | OpenAI | AzureOpenai
+        # Valores válidos de platform: Gemini, OpenAI, AzureOpenai
         platform: AzureOpenai
         models:
           # Mesmo deployment usado pelo demo-support-agent (endpoint /responses).
@@ -93,10 +96,17 @@ context:
       # Contrato "broker-to-agent": techwave-order-support-agent tem Client ID
       # Enforcement (ver SECURITY-POLICIES.md). Headers default client_id/client_secret.
       # NOTA (Agent Network 2.0): "url" fica direto na connection, sem aninhar em "spec".
+      # NOTA (schema 2.0): em `apikey-client-credentials`, clientId/clientSecret sao
+      # OBJETOS `{value, name}` — nao strings. `name` e o nome do header enviado
+      # (default do Client ID Enforcement: client_id / client_secret).
       authentication:
         kind: apikey-client-credentials
-        clientId: ${demoSupportAgent.clientId}
-        clientSecret: ${demoSupportAgent.clientSecret}
+        clientId:
+          value: ${demoSupportAgent.clientId}
+          name: client_id
+        clientSecret:
+          value: ${demoSupportAgent.clientSecret}
+          name: client_secret
     mcpServerConnection:
       kind: mcp
       ref:
@@ -106,8 +116,12 @@ context:
       # Enforcement + MCP Global Access (ver SECURITY-POLICIES.md).
       authentication:
         kind: apikey-client-credentials
-        clientId: ${mcpServer.clientId}
-        clientSecret: ${mcpServer.clientSecret}
+        clientId:
+          value: ${mcpServer.clientId}
+          name: client_id
+        clientSecret:
+          value: ${mcpServer.clientSecret}
+          name: client_secret
     azureOpenAiConnection:
       kind: llm
       ref:
@@ -136,13 +150,10 @@ brokers:
             streaming: false
             pushNotifications: true
             extendedAgentCard: false
-          # URL pública do broker via ingress Omni Gateway, declarada como
-          # supportedInterfaces (A2A protocol 1.0). Variável definida em exchange.json.
-          supportedInterfaces:
-            - url: ${demoOmniBroker.url}
-              protocolBinding: JSONRPC
-              protocolVersion: "1.0"
-              tenant: ""
+          # NOTA: o card do BROKER não declara url/supportedInterfaces. Pela spec A2A 1.0
+          # esses campos são obrigatórios num card, mas cards de broker são a exceção
+          # prática: o broker É o endpoint e serve a si mesmo — a URL é atribuída no
+          # deploy. Cards de agentes EXTERNOS (registry.agents) declaram, sim.
           defaultInputModes:
             - application/json
             - text/plain

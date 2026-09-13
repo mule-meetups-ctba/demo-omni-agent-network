@@ -2,7 +2,7 @@
   "main": "agent-network.yaml",
   "name": "demo-omni-agent-network",
   "classifier": "agentic-network",
-  "organizationId": "9db424b9-11da-4408-b49e-8e944a38666a",
+  "organizationId": "a75e4983-9a43-49c7-bfaa-b2e8d2b70a95",
   "descriptorVersion": "1.0.0",
   "description": "Demo Omni Agent Network (2.0). Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo.",
   "tags": [
@@ -10,15 +10,11 @@
     "omni",
     "agent-network"
   ],
-  "groupId": "9db424b9-11da-4408-b49e-8e944a38666a",
-  "assetId": "demo-omni-agent-network",
-  "version": "1.0.0",
-  "dependencies": [],
   "metadata": {
     "variables": {
       "demoSupportAgent": {
         "url": {
-          "description": "URL pública do Order Support Agent (demo-support-agent) via ingress Omni Gateway",
+          "description": "URL do Order Support Agent (demo-support-agent) exposta pelo ingress Omni Gateway",
           "default": "",
           "secret": false
         },
@@ -61,14 +57,12 @@
           "default": "",
           "secret": true
         }
-      },
-      "demoOmniBroker": {
-        "url": {
-          "description": "Public URL of the demo-omni-broker A2A endpoint via the ingress Omni Gateway (e.g. https://<ingress-gw>/demo-omni-broker), used in the broker's own agent card supportedInterfaces",
-          "default": "",
-          "secret": false
-        }
       }
     }
-  }
+  },
+  "apiVersion": "1.0.0",
+  "dependencies": [],
+  "groupId": "a75e4983-9a43-49c7-bfaa-b2e8d2b70a95",
+  "assetId": "demo-omni-agent-network",
+  "version": "2.0.1"
 }

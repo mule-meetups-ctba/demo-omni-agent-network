@@ -8,3 +8,6 @@ Thumbs.db
 # nunca no repositório. Ver SECRETS.md.
 *.key
 .env
+
+# Secure Properties Tool (binário; fica em repos/, fora dos repositórios)
+secure-properties-tool*.jar

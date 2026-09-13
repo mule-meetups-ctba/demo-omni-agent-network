@@ -1,18 +1,52 @@
 # @dialect: AGENTFABRIC=1.0
+#
+# Broker da demo TechWave — guided determinism.
+#
+# O grafo separa o que exige julgamento do LLM do que precisa acontecer sempre:
+#
+#   trigger ──> generator classifyIntent        (1 chamada de LLM, sem actions)
+#                    │
+#                    ▼
+#               router intentRouter             (determinístico)
+#                    ├── order_status ──> subagent orderStatusLookup      (read-only)
+#                    │                        └──> echo statusResponse
+#                    └── otherwise ────> orchestrator resolveSupportRequest
+#                                             └──> router refundRouter    (SEM LLM)
+#                                                    ├── executor refundPayment ──┐
+#                                                    └──────────────────────────> executor notifyTeam
+#                                                                                    └──> echo actionResponse
+#
+# Duas coisas que o modelo NÃO decide, porque são nós do grafo e não frases do
+# prompt: **mover dinheiro** e **avisar o time**. Prompt é sugestão; nó do grafo
+# é contrato.
+#
+# O reembolso é o caso mais caro dessa diferença. Ele não está em action nenhuma
+# do orchestrator: o LLM só preenche um output estruturado dizendo se cabe
+# reembolso e se o pagamento já foi reembolsado. Quem decide é o `refundRouter`,
+# e quem executa é um `executor` — um único ponto no broker que fala com o
+# Stripe, alcançável por uma rota só.
+#
+# ATENÇÃO SOBRE O EDITOR: a extensão genérica de Agent Script (dialetos
+# "agentforce" / "agentscript") NÃO conhece o dialeto AGENTFABRIC e marca este
+# arquivo inteiro como erro. Quem valida AGENTFABRIC é o Anypoint Code Builder.
+# A gramática abaixo segue a skill oficial build-agent-broker-project (references/gotchas.md
+# e references/canonical-example.md) do MuleSoft Developer Hub:
+# https://dev-portal.mulesoft.com/skills/mule-development/build-agent-broker-project/SKILL.md
 
 system:
-  instructions: "Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo."
+  instructions: "You are the TechWave Electronics customer support broker. You answer questions about orders and resolve support requests by coordinating the order support agent and the support MCP tools."
 
 config:
   agent_name: "demo-omni-broker"
   label: "Demo Omni Broker"
-  description: "Coordinates the order support agent, the MCP tools and the LLM for the TechWave Electronics support demo."
+  description: "Coordena o agente de suporte, as tools MCP e o LLM da demo TechWave Electronics."
   default_llm: @llm.azure_gpt
 
 
 # -- LLM ----------------------------------------------------------------------
-# Azure OpenAI usa kind "OpenAI" (só o Bedrock OpenAI difere, com prefixo
-# "openai." no nome do modelo). O endpoint exigido pelo broker é /responses.
+# Azure OpenAI usa kind "OpenAI" — o schema do Agent Script só discrimina entre
+# "OpenAI" e "Gemini"; quem diz que o provider é Azure é o `platform: AzureOpenai`
+# do registry no agent-network.yaml. O endpoint exigido pelo broker é /responses.
 
 llm:
   azure_gpt:
@@ -22,15 +56,14 @@ llm:
 
 
 # -- ACTION DEFINITIONS -------------------------------------------------------
+# Cada tool MCP é uma action explícita, com o tool_name exato exposto pelo
+# demo-support-mcp-server (support-tools.xml).
 
 actions:
   order_support_agent:
     target: "a2a://demoSupportAgentConnection"
     kind: "a2a:send_message"
 
-  # NOTE: no schema 2.0, cada tool MCP precisa ser declarada explicitamente
-  # (o v1 referenciava o mcpServer inteiro). Nomes reais expostos pelo
-  # demo-support-mcp-server (support-tools.xml):
   get_order_status:
     target: "mcp://mcpServerConnection"
     kind: "mcp:tool"
@@ -41,61 +74,340 @@ actions:
     kind: "mcp:tool"
     tool_name: "create-support-case"
 
+  # `inputs` e obrigatorio aqui: refund_payment passou a ser invocada pelo
+  # executor refundPayment, e executor nao faz slot filling — todo parametro de
+  # `with` precisa estar declarado. Sem isso, erro de compilacao.
   refund_payment:
     target: "mcp://mcpServerConnection"
     kind: "mcp:tool"
     tool_name: "refund-payment"
+    inputs:
+      paymentIntentId: string
+      reason: string
 
+  # NOTA: nem `notify_team` nem `refund_payment` entram em reasoning.actions.
+  # As duas são invocadas exclusivamente por executors. Disponíveis ao LLM, ele
+  # poderia chamá-las por conta própria: notificação em duplicidade num caso,
+  # reembolso em duplicidade no outro.
+  #
+  # `inputs` é declarado porque um executor não faz slot filling: todo argumento
+  # precisa estar resolvido em tempo de execução. O schema da tool exige
+  # message com no mínimo 5 caracteres — daí o prefixo fixo na concatenação abaixo.
   notify_team:
     target: "mcp://mcpServerConnection"
     kind: "mcp:tool"
     tool_name: "notify-team"
+    inputs:
+      message: string
 
 
 # -- TRIGGER ------------------------------------------------------------------
+# `target` aponta para brokers://<chave do broker no agent-network.yaml>/<interface>.
 
 trigger demoOmniBrokerTrigger:
   kind: "a2a"
   target: "brokers://demo-omni-broker/a2a"
   on_message: ->
-    transition to @orchestrator.demoOmniAssistant
+    transition to @generator.classifyIntent
 
 
-# -- ORCHESTRATION ------------------------------------------------------------
+# -- 1. CLASSIFICAÇÃO (probabilístico, escopo mínimo) -------------------------
+# `generator`: exatamente UMA chamada de LLM, sem loop e sem actions. É o nó certo
+# aqui — o modelo não precisa executar nada, só devolver a intenção. O enum fecha
+# o espaço de resposta para que o router possa comparar com segurança.
 
-orchestrator demoOmniAssistant:
-  description: "Decides whether to answer with the MCP tools directly or delegate to the order support agent."
-  label: "Demo Omni Assistant"
+generator classifyIntent:
+  label: "Classificar intenção"
+  description: "Decide se a mensagem é consulta pura de status ou pedido que exige ação."
+  llm: @llm.azure_gpt
   system:
     instructions: |
-      You are the TechWave Electronics customer support assistant. Use the available agent and MCP tools to answer questions about orders and to resolve support requests.
-      For simple read-only questions, such as checking the status of a single order, call the MCP tools directly instead of delegating. Delegate to the agent only when the task requires multi-step actions such as refunds, support cases, or team notifications.
+      Classify the customer's message into exactly one intent.
+
+      Classify as order_status:
+      - The customer ONLY asks about an order, its shipping, its items or its payment
+      - No action is requested (e.g. "Qual o status do pedido TW-1001?")
+
+      Classify as support_action:
+      - The message asks for anything to be done: refund, chargeback, cancellation,
+        replacement, opening a ticket or case, escalation
+      - The message reports a defect, damage or a wrong item
+      - When in doubt between the two, choose support_action: answering a question by
+        mistake is cheap, silently skipping a refund the customer asked for is not.
+  prompt: ->
+    | {!@request.payload.message.parts[0].text}
+  outputs:
+    properties:
+      intent:
+        type: "string"
+        description: "The classified intent of the customer message."
+        enum:
+          - "order_status"
+          - "support_action"
+  on_exit: ->
+    transition to @router.intentRouter
+
+
+# -- 2. ROTEAMENTO (determinístico, zero tokens) ------------------------------
+
+router intentRouter:
+  label: "Consulta ou ação?"
+  description: "Transição por condição sobre o output estruturado da classificação."
+  routes:
+    - target: @subagent.orderStatusLookup
+      when: @generator.classifyIntent.output.intent == "order_status"
+      label: "Consulta de status"
+  otherwise:
+    target: @orchestrator.resolveSupportRequest
+
+
+# -- 3a. CAMINHO DE CONSULTA (read-only, não notifica) ------------------------
+# Só a tool de leitura fica disponível: princípio do menor privilégio aplicado ao
+# nó. Consultar status não é evento que o time precise saber — notificar em tudo
+# vira ruído e o time para de ler.
+
+subagent orderStatusLookup:
+  label: "Consulta de pedido"
+  description: "Responde perguntas de status usando apenas a tool de leitura."
+  llm: @llm.azure_gpt
+  system:
+    instructions: |
+      You are the TechWave Electronics customer support assistant.
+      Answer the customer's question about their order using the get_order_status tool.
+      Do not take any action: no refunds, no cases, no notifications.
+      Answer in the customer's language.
   reasoning:
-    instructions: -> @request.payload.message.parts[0].text
+    instructions: ->
+      | {!@request.payload.message.parts[0].text}
     actions:
-      order_support_agent: @actions.order_support_agent
       get_order_status: @actions.get_order_status
-      create_support_case: @actions.create_support_case
-      refund_payment: @actions.refund_payment
-      notify_team: @actions.notify_team
     outputs:
       properties:
         summary:
           type: "string"
-          description: "Plain-text summary of all actions taken."
-    max_number_of_loops: 25
+          description: "Resposta ao cliente, em texto puro."
+    max_number_of_loops: 5
+    max_consecutive_errors: 3
+    task_timeout_secs: 60
   on_exit: ->
-    transition to @echo.demoOmniResponse
+    transition to @echo.statusResponse
 
-
-# -- RESPONSE -----------------------------------------------------------------
-
-echo demoOmniResponse:
+echo statusResponse:
   kind: "a2a:status_update_event"
   state: "TASK_STATE_COMPLETED"
-  message: a2a.message({
-    messageId: uuid(),
-    parts: [
-      a2a.textPart(@orchestrator.demoOmniAssistant.output.summary)
-    ]
-  })
+  message: a2a.message({messageId: uuid(), parts: [a2a.textPart(@subagent.orderStatusLookup.output.summary)]})
+
+
+# -- 3b. CAMINHO DE AÇÃO -------------------------------------------------------
+# O LLM decide o que investigar e o que relatar. Ele NÃO executa o reembolso e
+# NÃO decide se o time é avisado — essas duas coisas são nós do grafo.
+#
+# O reembolso saiu de `reasoning.actions` de propósito. Enquanto esteve aqui, a
+# única proteção contra reembolsar duas vezes era uma frase no system prompt, e
+# o modelo ainda podia delegar o mesmo reembolso ao agente A2A na mesma rodada —
+# dois caminhos para mover dinheiro de verdade no Stripe. Agora existe um só, e
+# ele é determinístico.
+
+orchestrator resolveSupportRequest:
+  label: "Resolver solicitação"
+  description: "Investiga o pedido, abre case e decide — sem executar — se cabe reembolso."
+  llm: @llm.azure_gpt
+  system:
+    instructions: |
+      You are the TechWave Electronics customer support assistant.
+      Resolve the customer's request. Always call get_order_status first — never invent order data.
+
+      You CANNOT issue refunds. There is no refund tool available to you, and you must never ask
+      order_support_agent to issue one either. Your job for refunds is to REPORT, not to act:
+      read payment.paymentIntentId and payment.refunded from get_order_status and fill the
+      refundDecision, alreadyRefunded, paymentIntentId and refundReason outputs. A downstream step
+      executes the refund when your outputs allow it.
+
+      Set refundDecision to "refund" only when the customer actually asked for a refund, a
+      chargeback, a cancellation with money back, or reported a defective or wrong item that
+      warrants one. Otherwise set it to "no_refund".
+      Set alreadyRefunded to "yes" when payment.refunded is true, "no" when it is false, and
+      "unknown" when you could not read the payment at all.
+      Set paymentIntentId to payment.paymentIntentId, or to an empty string when there is none.
+      Set refundReason to "requested_by_customer" unless the evidence clearly points to
+      "duplicate" or "fraudulent".
+
+      Delegate to order_support_agent when the request needs multi-step handling that is not a
+      refund. Open a case with create_support_case when the customer reports a problem.
+      Do not notify the team yourself — that happens automatically after this step.
+      Write summary in the customer's language. Do NOT state whether the refund happened or not —
+      you run BEFORE the refund step, so you cannot know. Never write that it "was not processed"
+      or that it "is still pending": that text reaches the customer even when the refund goes
+      through seconds later. Describe only what you investigated and opened; a downstream step
+      appends the refund outcome.
+  reasoning:
+    instructions: ->
+      | {!@request.payload.message.parts[0].text}
+    actions:
+      order_support_agent: @actions.order_support_agent
+      get_order_status: @actions.get_order_status
+      create_support_case: @actions.create_support_case
+    outputs:
+      properties:
+        summary:
+          type: "string"
+          description: "Resposta ao cliente, em texto puro."
+        actionsTaken:
+          type: "string"
+          description: "Resumo objetivo do que foi executado (case aberto, consulta feita, etc.) para o time de suporte. Se nada foi executado, explique por quê."
+        refundDecision:
+          type: "string"
+          description: "Se a solicitação do cliente justifica um reembolso."
+          enum:
+            - "refund"
+            - "no_refund"
+        alreadyRefunded:
+          type: "string"
+          description: "Se o pagamento já consta como reembolsado em get_order_status."
+          enum:
+            - "yes"
+            - "no"
+            - "unknown"
+        paymentIntentId:
+          type: "string"
+          description: "PaymentIntent do pedido, vindo de get_order_status. String vazia quando não houver."
+        refundReason:
+          type: "string"
+          description: "Motivo do reembolso, no vocabulário do Stripe."
+          enum:
+            - "duplicate"
+            - "fraudulent"
+            - "requested_by_customer"
+    max_number_of_loops: 8
+    max_consecutive_errors: 3
+    task_timeout_secs: 120
+  on_exit: ->
+    transition to @router.refundRequested
+
+
+# -- 4. PORTA DO REEMBOLSO (determinístico, zero tokens) ----------------------
+# O guardrail de reembolso deixou de ser uma frase no prompt e virou condição de
+# grafo. Prompt o modelo pode ignorar; rota não.
+#
+# SÃO DOIS ROUTERS DE UMA ROTA CADA. A versão anterior era um router só, com
+# duas rotas ordenadas, e ela FUNCIONAVA — o log do runtime mostra
+# `[refundRouter] on_exit: Handoff to refundPayment enabled`. Cheguei a
+# atribuir a ela uma falha que era de outro lugar (o campo `refunded` da Order
+# API, sempre false, que cegava o guardrail).
+#
+# A troca ficou mesmo assim por ser mais difícil de errar: cada porta é uma
+# condição única, então ninguém depende de lembrar que rotas são avaliadas em
+# ordem e que inverter duas linhas reintroduz reembolso em duplicidade.
+#
+# `unknown` em alreadyRefunded cai no otherwise e NÃO reembolsa: quando não deu
+# para ler o pagamento, o certo é avisar o time, não mexer no dinheiro.
+
+router refundRequested:
+  label: "Cliente pediu reembolso?"
+  description: "Primeira porta: só segue quem realmente pediu reembolso."
+  routes:
+    - target: @router.refundAllowed
+      when: @orchestrator.resolveSupportRequest.output.refundDecision == "refund"
+      label: "Pediu reembolso"
+  otherwise:
+    target: @executor.notifyTeam
+
+
+router refundAllowed:
+  label: "Pagamento ainda não reembolsado?"
+  description: "Segunda porta: bloqueia reembolso em cima de pagamento já reembolsado."
+  routes:
+    - target: @executor.refundPayment
+      when: @orchestrator.resolveSupportRequest.output.alreadyRefunded == "no"
+      label: "Ainda não reembolsado"
+  otherwise:
+    target: @executor.notifyTeam
+
+
+# -- 5. REEMBOLSO (determinístico, sem LLM) -----------------------------------
+# Único ponto do broker que move dinheiro. Argumentos totalmente resolvidos a
+# partir do output estruturado do orchestrator — sem slot filling, sem escolha
+# do modelo no momento da chamada.
+
+executor refundPayment:
+  label: "Processar reembolso"
+  description: "Executa o reembolso no Stripe via MCP. Alcançável só pela rota aprovada acima."
+  do: ->
+    run @actions.refund_payment
+      with paymentIntentId = @orchestrator.resolveSupportRequest.output.paymentIntentId
+      with reason = @orchestrator.resolveSupportRequest.output.refundReason
+  on_exit: ->
+    transition to @executor.notifyRefundOutcome
+
+
+# -- 6. NOTIFICAÇÃO OBRIGATÓRIA (determinístico, sem LLM) ---------------------
+# Roda sempre que o caminho de ação for tomado — inclusive quando a ação FALHA,
+# que é justamente quando o time mais precisa saber. A decisão de reembolso
+# entra na mensagem para o time enxergar o que a porta decidiu, mesmo quando ela
+# bloqueou.
+#
+# A expressão do `with` tem que caber numa linha só. Quebrar a concatenação com
+# `+` em linha de continuação dá `syntax-error: Unrecognized syntax in executor`
+# — e o erro aparece como se fosse do corpo inteiro do `run`.
+
+executor notifyTeam:
+  label: "Notificar o time (obrigatório)"
+  description: "Envia ao Slack o resumo do que foi executado. Não depende de decisão do LLM."
+  do: ->
+    run @actions.notify_team
+      with message = "[TechWave] " + @orchestrator.resolveSupportRequest.output.actionsTaken + " | refundDecision=" + @orchestrator.resolveSupportRequest.output.refundDecision + " alreadyRefunded=" + @orchestrator.resolveSupportRequest.output.alreadyRefunded
+  on_exit: ->
+    transition to @echo.actionResponse
+
+
+# -- 6b. NOTIFICAÇÃO DO RAMO DE REEMBOLSO -------------------------------------
+# Nó separado só para o caminho que passou pelo executor de reembolso, e a razão
+# é concreta: uma tool MCP que falha devolve `isError: true` no CONTEÚDO, não um
+# erro de protocolo — o grafo segue em frente e a task fecha como COMPLETED. Foi
+# assim que um 400 do Stripe ("bad request" em /v1/refunds) passou despercebido
+# por três execuções seguidas.
+#
+# O grafo não consegue ramificar sobre esse resultado (executor não declara
+# `outputs`), mas consegue COLOCÁ-LO NA MENSAGEM. Então o time vê o texto da
+# tool — inclusive o erro — em vez de um "reembolso processado" que não
+# aconteceu.
+#
+# Ele fica separado do notifyTeam de propósito: `@executor.refundPayment.output`
+# só existe no ramo em que aquele nó rodou. Num notificador compartilhado, o
+# ramo sem reembolso arriscaria quebrar a notificação inteira.
+
+executor notifyRefundOutcome:
+  label: "Notificar o time (reembolso)"
+  description: "Avisa o Slack com o resultado da chamada de reembolso, inclusive quando ela falha."
+  do: ->
+    run @actions.notify_team
+      with message = "[TechWave] REEMBOLSO | " + @orchestrator.resolveSupportRequest.output.actionsTaken + " | resultado da tool: " + @executor.refundPayment.output
+  on_exit: ->
+    transition to @echo.refundResponse
+
+
+# -- 7. RESPOSTAS -------------------------------------------------------------
+# Dois nós echo, um por branch. No Agent Visualizer isso aparece como dois nós
+# terminais distintos, o que deixa o contraste "só consultou" vs "agiu e avisou"
+# visível no desenho.
+
+echo actionResponse:
+  kind: "a2a:status_update_event"
+  state: "TASK_STATE_COMPLETED"
+  message: a2a.message({messageId: uuid(), parts: [a2a.textPart(@orchestrator.resolveSupportRequest.output.summary)]})
+
+
+# -- 7b. RESPOSTA DO RAMO DE REEMBOLSO ----------------------------------------
+# Echo separado porque o `summary` do orchestrator é escrito ANTES do reembolso
+# rodar — ele não tem como saber o desfecho. Na primeira execução bem-sucedida
+# o cliente leu "ainda não consta como realizado" enquanto o Stripe registrava
+# `re_...` com status `succeeded` segundos depois.
+#
+# Aqui a mensagem é montada DEPOIS do executor, então pode afirmar o que de fato
+# aconteceu — e `@executor.refundPayment.output` carrega inclusive a falha,
+# quando houver.
+
+echo refundResponse:
+  kind: "a2a:status_update_event"
+  state: "TASK_STATE_COMPLETED"
+  message: a2a.message({messageId: uuid(), parts: [a2a.textPart(@orchestrator.resolveSupportRequest.output.summary + " | Reembolso: " + @executor.refundPayment.output)]})

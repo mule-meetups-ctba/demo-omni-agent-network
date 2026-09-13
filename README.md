@@ -37,6 +37,10 @@ Três coisas que só a documentação resolve — e que custam tempo se erradas:
 - **`platform` do LLM:** os valores aceitos são `Gemini`, `OpenAI` e `AzureOpenai` — repare na
   grafia de `AzureOpenai`. No AgentScript, Azure OpenAI usa `kind: "OpenAI"`; só o Bedrock
   OpenAI difere, com prefixo `openai.` no nome do modelo.
+- **`apikey-client-credentials` usa objetos, não strings.** Em `context.connections.<id>.authentication`,
+  `clientId` e `clientSecret` são `{value, name}` — `value` é o `${...}`, `name` é o header enviado
+  (`client_id`/`client_secret`, os defaults do Client ID Enforcement). Passar string crua dá ~30
+  violações AMF em cascata (`must be object`, `must match a schema in anyOf`) e o `build` falha.
 - **URL da connection LLM é só a base.** Para Azure OpenAI, termina em `/openai/v1`, sem
   `/responses` e sem barra final — o broker monta o path sozinho. Sobra de path aí é a causa
   clássica de redirect/404.
@@ -49,10 +53,113 @@ verboso que referenciar o servidor inteiro, mas dá controle fino sobre o que o 
 O broker separa o que exige julgamento probabilístico do que exige controle determinístico:
 
 ```
-trigger (A2A)  →  orchestrator (LLM decide)  →  echo (resposta A2A)
+trigger ──> generator classifyIntent          (1 chamada de LLM, sem actions)
+                 │
+            router intentRouter               (determinístico, zero tokens)
+                 ├── order_status ──> subagent orderStatusLookup   (só a tool de leitura)
+                 │                        └──> echo statusResponse
+                 └── otherwise ────> orchestrator resolveSupportRequest
+                                          └──> router refundRouter (determinístico)
+                                                 ├── executor refundPayment ──┐
+                                                 └───────────────────────────> executor notifyTeam
+                                                                                 └──> echo actionResponse
 ```
 
-O LLM decide *o quê*; o grafo garante *a ordem*.
+O LLM decide *o quê*; o grafo garante *a ordem* e guarda o que é irreversível.
+
+**Duas coisas o modelo não decide**, porque são nós do grafo e não frases do prompt:
+
+| | Como era | Como é |
+|---|---|---|
+| Avisar o time | frase no system prompt — o modelo às vezes encerrava sem chamar | `executor notifyTeam`, sempre no caminho de ação |
+| Mover dinheiro | `refund_payment` exposta ao LLM em `reasoning.actions`, guardrail em prosa | `executor refundPayment`, atrás do `refundRouter` |
+
+O reembolso é o caso que mais paga essa diferença. O orchestrator **não tem** a tool de
+reembolso: ele só preenche outputs estruturados (`refundDecision`, `alreadyRefunded`,
+`paymentIntentId`, `refundReason`). Quem decide é o router; quem executa é o executor — um único
+ponto no broker que fala com o Stripe, alcançável por uma rota só.
+
+Antes havia **dois** caminhos para reembolsar: a tool MCP direta e a delegação ao
+`order_support_agent`, que também reembolsa. Nada impedia o modelo de fazer os dois na mesma
+rodada.
+
+> **A ordem das rotas do `refundRouter` é a regra.** Elas são avaliadas de cima para baixo e a
+> primeira que casar vence. A rota de bloqueio (`alreadyRefunded == "yes"`) vem **primeiro**, para
+> ganhar de `refundDecision == "refund"`. Inverter as duas reintroduz o reembolso em duplicidade
+> sem gerar nenhum erro de compilação.
+
+### ⚠️ Pendente: as políticas ainda não estão no YAML
+
+`SECURITY-POLICIES.md` (linha 4) pede **Client ID Enforcement + A2A PII Detector + Rate Limiting /
+Spike Control** no ingress do broker. Hoje elas não estão declaradas aqui — aplicadas à mão no API
+Manager, **somem no próximo redeploy ou undeploy**.
+
+Tentei declarar e o `agent-network project build` recusou. Fica registrado o que já está resolvido
+e onde exatamente trava, para não refazer a investigação:
+
+**Resolvido.** Coordenadas no Exchange (org pública da MuleSoft,
+`68ef9520-24e9-4cf2-b2f5-620025690913`) — Omni Gateway é Flex, então as variantes `-flex`:
+
+| Política | assetId | version |
+|---|---|---|
+| Client ID Enforcement | `client-id-enforcement-flex` | 1.2.0 |
+| A2A PII Detector | `a-two-a-pii-detector-flex` | 1.1.1 |
+| Rate Limiting | `rate-limiting-flex` | 1.2.2 |
+| Spike Control | `spike-control-flex` | 1.2.0 |
+
+```bash
+anypoint-cli-v4 exchange asset list "Client ID Enforcement" --limit 20 --output json
+```
+
+> O termo de busca é **argumento posicional**, não `--search`. E use `--output`, nunca `-o`: o
+> short flag colide com `--offset` e o erro que aparece é `Expected an integer but received: json`.
+
+**Resolvido.** Shape da declaração e do binding (doc oficial):
+
+```yaml
+context:
+  policies:
+    clientIdEnforcement:
+      ref: { name: client-id-enforcement-flex }
+      configuration: { }
+
+brokers:
+  demo-omni-broker:
+    interfaces:
+      a2a:
+        policies:
+          inbound:
+            - ref: { name: clientIdEnforcement }
+          outbound: []
+```
+
+O mesmo shape (`policies.inbound` / `policies.outbound`) vale em `context.connections.<id>`.
+
+**Onde trava.** Com a política acima em `exchange.json.dependencies`, o build falha:
+
+```
+Asset 68ef9520-24e9-4cf2-b2f5-620025690913/client-id-enforcement-flex/1.2.0/ is unreachable
+Cannot resolve reference client-id-enforcement-flex of kind policy
+```
+
+**Não é permissão.** Com as mesmas credenciais, o asset responde 200 no Exchange Maven de consumo:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN"   https://maven.anypoint.mulesoft.com/api/v3/maven/68ef9520-24e9-4cf2-b2f5-620025690913/client-id-enforcement-flex/1.2.0/client-id-enforcement-flex-1.2.0.pom
+```
+
+Também não é o `classifier`: com `policy-implementation`, com `binary`, ou sem classifier nenhum, a
+mensagem é idêntica — e a URI do erro sempre termina em `/`, como se o plugin montasse o
+identificador por conta própria e ignorasse o que está na dependência.
+
+**Hipótese mais provável:** `context.policies` serve para políticas publicadas na **sua própria
+org** (custom policies), e as embutidas da MuleSoft entram por instância no API Manager. Reforça
+isso o fato de o Omni Gateway já aplicar sozinho um conjunto delas a cada deploy (A2A Agent Card,
+Tracing, Agent Connection Telemetry).
+
+**Enquanto não fecha:** aplique as três no console e **reaplique depois de cada redeploy** — é
+justamente o que o `CLAUDE.md` avisa que se perde. Vale testar no Anypoint Code Builder, que pode
+resolver policies por outro caminho que o plugin da CLI.
 
 ## Variáveis
 
@@ -61,16 +168,86 @@ Ver [SECRETS.md](SECRETS.md) para a lista completa e o checklist de rotação.
 
 ## Publicando e deployando
 
-1. Abra o projeto no **Anypoint Code Builder** (ou copie a estrutura para um projeto novo gerado
-   pelo template Agent Network).
-2. Preencha as variáveis de `exchange.json` com os valores reais pós-deploy dos apps (URLs via
-   ingress GW + credenciais dos contratos).
-3. Confira que `supportedInterfaces[0].url` do agente bate com `${demoSupportAgent.url}/rpc` — o path
+Validação, publish e deploy são feitos pelo **Anypoint CLI Agent Fabric plugin**
+(`npm i -g mulesoft-anypoint-cli-agent-fabric-plugin`). Autenticação é 100% por variável de
+ambiente — nunca inline:
+
+```bash
+export ANYPOINT_CLIENT_ID='<connected app client_id>'
+export ANYPOINT_CLIENT_SECRET='<connected app client_secret>'
+export ANYPOINT_ORG='a75e4983-9a43-49c7-bfaa-b2e8d2b70a95'   # BG "Research"
+export ANYPOINT_ENV='Prod'                                    # nome, NAO o UUID (ver nota abaixo)
+
+anypoint-cli-agent-fabric-plugin agent-network project build   --path .
+anypoint-cli-agent-fabric-plugin agent-network project publish --path .
+```
+
+> **`ANYPOINT_ORG` tem que ser igual ao `groupId`/`organizationId` do `exchange.json`.** Divergir
+> dá `401`/`403` no publish.
+>
+> **`ANYPOINT_ENV` é o NOME do environment, não o UUID.** Passar o id dá
+> **"Environment not found"** — exatamente o mesmo erro de um nome inexistente, o que manda você
+> investigar o lado errado. A org tem dois: `Dev` (sandbox) e `Prod` (production, sufixo de DNS
+> `-ab12cd`). Confira com `anypoint-cli-v4 account environment list --output json`.
+>
+> **O plugin do Agent Fabric não lê a config do `anypoint-cli-v4`** — só as variáveis de ambiente.
+> O `anypoint-cli-v4` funciona com a config gravada; o plugin, não. Se o build falhar com
+> *"No authentication mechanism was provided"*, é isso.
+>
+> **`publish` ignora o `version` do `exchange.json`** e incrementa a partir do último publicado.
+> Em 13/set/2026 o repo dizia `1.0.0`, o Exchange já tinha `2.0.0`, e o publish gerou `2.0.1`.
+> Realinhe o arquivo depois de publicar.
+
+O `build` valida o `agent-network.yaml` (schema AMF) **e** o `.agent` (dialeto AGENTFABRIC), e
+gera `target/`. O `publish` sobe 5 assets: os 3 do registry (`demoSupportAgent`, `mcpServer`,
+`azureOpenAi`), o broker (`demo-omni-broker`) e a rede (`demo-omni-agent-network`).
+
+### Valores de Prod (private space `CHANGE-ME-private-space-or-region`, DNS `lndtvj.usa-e1.cloudhub.io`)
+
+O Omni Gateway de Prod é o app **`omni-gw-demo`** (sufixo de environment `-ab12cd`). As três
+variáveis de URL vão para o **gateway**, não para os apps direto — é o gateway que valida o
+`client_id`/`client_secret` que a connection injeta (policy `credential-injection-api-key`) e que
+aplica PII Detector / Rate Limiting. Ver `SECURITY-POLICIES.md`.
+
+```bash
+anypoint-cli-agent-fabric-plugin agent-network project deploy --path .   --environment Prod -g omni-gw-demo   --property demoSupportAgent.url:https://<ingress-gw-host>/techwave-order-support-agent   --property mcpServer.url:https://<egress-gw-host-interno>/techwave-support-mcp-server   --property azureOpenAi.url:https://<recurso>.services.ai.azure.com/openai/v1   --property demoSupportAgent.clientId:<contrato broker-to-agent>   --property demoSupportAgent.clientSecret:<...>   --property mcpServer.clientId:<contrato broker-to-mcp-server>   --property mcpServer.clientSecret:<...>   --property azureOpenAi.apiKey:<...>
+```
+
+Os apps por trás do gateway (DNS **interno**, só resolve dentro do private space) são o *backend*
+de cada API instance — não vão no `agent-network.yaml`:
+
+| API instance no `omni-gw-demo` | Upstream (backend) |
+|---|---|
+| `/techwave-order-support-agent` | `https://<app-demo-support-agent-host>.cloudhub.io/techwave-order-support-agent/` |
+| `/techwave-support-mcp-server` | `https://<app-demo-support-mcp-server-host>.cloudhub.io/` |
+| `/techwave-order-support-api` | `https://<app-demo-order-support-api-host>.cloudhub.io/` |
+
+> **Duas regras nessa tabela, as duas descobertas na marra.**
+>
+> 1. **O Upstream termina em `/`.** O gateway monta o destino como `Upstream (literal) + (path
+>    público − base path, sem as barras iniciais)` — concatenação crua, sem separador. Sem a barra,
+>    `/techwave-order-support-agent/rpc` vira `/techwave-order-support-agentrpc` e o app responde
+>    `No listener for endpoint`.
+> 2. **O agente não escuta mais em `/agents/order-support`.** O `agentPath` passou a ser
+>    `/techwave-order-support-agent`, igual ao base path da instância, porque a validação de bijeção
+>    do A2A Connector compara o *path* da URL anunciada no card com `agentPath` + path da interface —
+>    ou seja, **o gateway não pode reescrever o path**. Ver `DIAGNOSTICO-deploy.md`.
+
+> **Barra final quebra o card.** `supportedInterfaces[0].url` é `${demoSupportAgent.url}/rpc`, então
+> um valor terminado em `/` vira `...//rpc`. **Nenhuma das três variáveis `--property *.url` pode
+> terminar em `/`** — o oposto da regra do campo Upstream acima, que exige a barra. São coisas
+> diferentes: uma é o que a rede anuncia, a outra é o que o gateway concatena.
+
+Depois disso:
+
+1. Preencha as variáveis de `exchange.json` com os valores reais pós-deploy dos apps (URLs via
+   ingress GW + credenciais dos contratos) — ou passe-as no deploy com `--property k:v`.
+2. Confira que `supportedInterfaces[0].url` do agente bate com `${demoSupportAgent.url}/rpc` — o path
    `/rpc` do binding JSON-RPC do `demo-support-agent`.
-4. Publique os assets no **Exchange** e deploye a instância da rede.
-5. Registre o broker como Agent Instance no ingress gateway e aplique as políticas
+3. Deploye a instância da rede (`agent-network project deploy`).
+4. Registre o broker como Agent Instance no ingress gateway e aplique as políticas
    (Client ID Enforcement + A2A PII Detector + Rate Limiting).
-6. Abra o **Agent Visualizer** e confirme broker, agente e MCP server no mapa.
+5. Abra o **Agent Visualizer** e confirme broker, agente e MCP server no mapa.
 
 ## Comportamento para demonstrar
 
@@ -81,4 +258,4 @@ Duas perguntas ao broker, dois caminhos diferentes no Visualizer:
 | "Qual o status do pedido TW-1001?" | chama a tool MCP **direto** — trace broker → MCP |
 | "Monitor do TW-1002 com defeito, quero reembolso" | **delega** ao agente — trace broker → agente → MCP → 4 tools |
 
-A instrução de roteamento que produz isso está no `orchestrator` do AgentScript.
+Quem produz essa bifurcação é o `generator classifyIntent` + `router intentRouter` do AgentScript — não uma frase no prompt.
