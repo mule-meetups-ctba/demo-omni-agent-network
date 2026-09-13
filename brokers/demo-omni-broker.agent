@@ -11,10 +11,14 @@
 #                    ├── order_status ──> subagent orderStatusLookup      (read-only)
 #                    │                        └──> echo statusResponse
 #                    └── otherwise ────> orchestrator resolveSupportRequest
-#                                             └──> router refundRouter    (SEM LLM)
-#                                                    ├── executor refundPayment ──┐
-#                                                    └──────────────────────────> executor notifyTeam
-#                                                                                    └──> echo actionResponse
+#                                             └──> router refundRequested  (SEM LLM)
+#                                                    ├── refund ──> router refundAllowed  (SEM LLM)
+#                                                    │                     ├── no ──> executor refundPayment
+#                                                    │                     │              └──> executor notifyRefundOutcome
+#                                                    │                     │                     └──> echo refundResponse
+#                                                    │                     └── otherwise ───┐
+#                                                    └── otherwise ─────────────────────> executor notifyTeam
+#                                                                                              └──> echo actionResponse
 #
 # Duas coisas que o modelo NÃO decide, porque são nós do grafo e não frases do
 # prompt: **mover dinheiro** e **avisar o time**. Prompt é sugestão; nó do grafo
@@ -22,7 +26,7 @@
 #
 # O reembolso é o caso mais caro dessa diferença. Ele não está em action nenhuma
 # do orchestrator: o LLM só preenche um output estruturado dizendo se cabe
-# reembolso e se o pagamento já foi reembolsado. Quem decide é o `refundRouter`,
+# reembolso e se o pagamento já foi reembolsado. Quem decide são os dois routers,
 # e quem executa é um `executor` — um único ponto no broker que fala com o
 # Stripe, alcançável por uma rota só.
 #
