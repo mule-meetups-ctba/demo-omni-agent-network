@@ -202,25 +202,25 @@ O `build` valida o `agent-network.yaml` (schema AMF) **e** o `.agent` (dialeto A
 gera `target/`. O `publish` sobe 5 assets: os 3 do registry (`demoSupportAgent`, `mcpServer`,
 `azureOpenAi`), o broker (`demo-omni-broker`) e a rede (`demo-omni-agent-network`).
 
-### Valores de Prod (private space `CHANGE-ME-private-space-or-region`, DNS `lndtvj.usa-e1.cloudhub.io`)
+### Valores de Prod (private space e DNS do seu ambiente)
 
-O Omni Gateway de Prod é o app **`omni-gw-demo`** (sufixo de environment `-ab12cd`). As três
+O Omni Gateway de Prod é um app próprio (o sufixo do hostname muda por environment). As três
 variáveis de URL vão para o **gateway**, não para os apps direto — é o gateway que valida o
 `client_id`/`client_secret` que a connection injeta (policy `credential-injection-api-key`) e que
 aplica PII Detector / Rate Limiting. Ver `SECURITY-POLICIES.md`.
 
 ```bash
-anypoint-cli-agent-fabric-plugin agent-network project deploy --path .   --environment Prod -g omni-gw-demo   --property demoSupportAgent.url:https://<ingress-gw-host>/techwave-order-support-agent   --property mcpServer.url:https://<egress-gw-host-interno>/techwave-support-mcp-server   --property azureOpenAi.url:https://<recurso>.services.ai.azure.com/openai/v1   --property demoSupportAgent.clientId:<contrato broker-to-agent>   --property demoSupportAgent.clientSecret:<...>   --property mcpServer.clientId:<contrato broker-to-mcp-server>   --property mcpServer.clientSecret:<...>   --property azureOpenAi.apiKey:<...>
+anypoint-cli-agent-fabric-plugin agent-network project deploy --path .   --environment Prod -g <nome-do-gateway>   --property demoSupportAgent.url:https://<ingress-gw-host>/techwave-order-support-agent   --property mcpServer.url:https://<egress-gw-host-interno>/techwave-support-mcp-server   --property azureOpenAi.url:https://<recurso>.services.ai.azure.com/openai/v1   --property demoSupportAgent.clientId:<contrato broker-to-agent>   --property demoSupportAgent.clientSecret:<...>   --property mcpServer.clientId:<contrato broker-to-mcp-server>   --property mcpServer.clientSecret:<...>   --property azureOpenAi.apiKey:<...>
 ```
 
 Os apps por trás do gateway (DNS **interno**, só resolve dentro do private space) são o *backend*
 de cada API instance — não vão no `agent-network.yaml`:
 
-| API instance no `omni-gw-demo` | Upstream (backend) |
+| API instance no gateway | Upstream (backend) |
 |---|---|
-| `/techwave-order-support-agent` | `https://<app-demo-support-agent-host>.cloudhub.io/techwave-order-support-agent/` |
-| `/techwave-support-mcp-server` | `https://<app-demo-support-mcp-server-host>.cloudhub.io/` |
-| `/techwave-order-support-api` | `https://<app-demo-order-support-api-host>.cloudhub.io/` |
+| `/techwave-order-support-agent` | `https://<app-support-agent-host>.internal.cloudhub.io/techwave-order-support-agent/` |
+| `/techwave-support-mcp-server` | `https://<app-support-mcp-server-host>.internal.cloudhub.io/` |
+| `/techwave-order-support-api` | `https://<app-order-support-api-host>.internal.cloudhub.io/` |
 
 > **Duas regras nessa tabela, as duas descobertas na marra.**
 >

@@ -11,3 +11,6 @@ Thumbs.db
 
 # Secure Properties Tool (binário; fica em repos/, fora dos repositórios)
 secure-properties-tool*.jar
+
+# Cache do Anypoint Code Builder — guarda copia dos configs resolvidos
+.tooling-project/
