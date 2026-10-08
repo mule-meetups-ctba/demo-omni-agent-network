@@ -94,7 +94,7 @@ context:
         name: demoSupportAgent
       url: ${demoSupportAgent.url}
       # Contrato "broker-to-agent": techwave-order-support-agent tem Client ID
-      # Enforcement (ver SECURITY-POLICIES.md). Headers default client_id/client_secret.
+      # Enforcement. Headers default client_id/client_secret.
       # NOTA (Agent Network 2.0): "url" fica direto na connection, sem aninhar em "spec".
       # NOTA (schema 2.0): em `apikey-client-credentials`, clientId/clientSecret sao
       # OBJETOS `{value, name}` — nao strings. `name` e o nome do header enviado
@@ -113,7 +113,7 @@ context:
         name: mcpServer
       url: ${mcpServer.url}
       # Contrato "broker-to-mcp-server": techwave-support-mcp-server tem Client ID
-      # Enforcement + MCP Global Access (ver SECURITY-POLICIES.md).
+      # Enforcement + MCP Global Access.
       authentication:
         kind: apikey-client-credentials
         clientId:

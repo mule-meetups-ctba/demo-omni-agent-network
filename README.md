@@ -9,8 +9,14 @@ sozinho e quando delegar.
 - **LLM:** Azure OpenAI `gpt-5.4-mini` (endpoint `/responses`)
 - **Protocolo entre agentes:** A2A 1.0
 
-> Parte de uma demo com 4 repositórios. Arquitetura, walkthrough completo, políticas de gateway
-> e roteiro de apresentação: **`meetup-omni-material`**.
+> Parte de uma demo com quatro repositórios, que só faz sentido completa:
+>
+> - [`demo-order-support-api`](https://github.com/mule-meetups-ctba/demo-order-support-api) — API REST de pedidos + consulta do pagamento no Stripe
+> - [`demo-support-mcp-server`](https://github.com/mule-meetups-ctba/demo-support-mcp-server) — MCP server com as quatro tools de suporte
+> - [`demo-support-agent`](https://github.com/mule-meetups-ctba/demo-support-agent) — agente A2A com tool-calling
+>
+> A arquitetura, o passo a passo de deploy e as políticas de gateway estão
+> descritos no artigo que acompanha a demo.
 
 ## Estrutura
 
@@ -90,7 +96,7 @@ rodada.
 
 ### ⚠️ Pendente: as políticas ainda não estão no YAML
 
-`SECURITY-POLICIES.md` (linha 4) pede **Client ID Enforcement + A2A PII Detector + Rate Limiting /
+A política recomendada para o broker é **Client ID Enforcement + A2A PII Detector + Rate Limiting /
 Spike Control** no ingress do broker. Hoje elas não estão declaradas aqui — aplicadas à mão no API
 Manager, **somem no próximo redeploy ou undeploy**.
 
@@ -207,7 +213,7 @@ gera `target/`. O `publish` sobe 5 assets: os 3 do registry (`demoSupportAgent`,
 O Omni Gateway de Prod é um app próprio (o sufixo do hostname muda por environment). As três
 variáveis de URL vão para o **gateway**, não para os apps direto — é o gateway que valida o
 `client_id`/`client_secret` que a connection injeta (policy `credential-injection-api-key`) e que
-aplica PII Detector / Rate Limiting. Ver `SECURITY-POLICIES.md`.
+aplica PII Detector / Rate Limiting.
 
 ```bash
 anypoint-cli-agent-fabric-plugin agent-network project deploy --path .   --environment Prod -g <nome-do-gateway>   --property demoSupportAgent.url:https://<ingress-gw-host>/techwave-order-support-agent   --property mcpServer.url:https://<egress-gw-host-interno>/techwave-support-mcp-server   --property azureOpenAi.url:https://<recurso>.services.ai.azure.com/openai/v1   --property demoSupportAgent.clientId:<contrato broker-to-agent>   --property demoSupportAgent.clientSecret:<...>   --property mcpServer.clientId:<contrato broker-to-mcp-server>   --property mcpServer.clientSecret:<...>   --property azureOpenAi.apiKey:<...>
@@ -231,7 +237,7 @@ de cada API instance — não vão no `agent-network.yaml`:
 > 2. **O agente não escuta mais em `/agents/order-support`.** O `agentPath` passou a ser
 >    `/techwave-order-support-agent`, igual ao base path da instância, porque a validação de bijeção
 >    do A2A Connector compara o *path* da URL anunciada no card com `agentPath` + path da interface —
->    ou seja, **o gateway não pode reescrever o path**. Ver `DIAGNOSTICO-deploy.md`.
+>    ou seja, **o gateway não pode reescrever o path**.
 
 > **Barra final quebra o card.** `supportedInterfaces[0].url` é `${demoSupportAgent.url}/rpc`, então
 > um valor terminado em `/` vira `...//rpc`. **Nenhuma das três variáveis `--property *.url` pode
